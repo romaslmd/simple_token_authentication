@@ -1,73 +1,100 @@
 module SimpleTokenAuthentication
   class Entity
-    def initialize(model, model_alias=nil)
-      @model = model
-      @name = model.name
-      @name_underscore = model_alias.to_s unless model_alias.nil?
-    end
+    attr_accessor :exception_handler, :devise_handler
 
-    def model
-      @model
+    def initialize(model, options = {})
+      @model = model.to_s.classify.constantize
+      @name = @model.name
+      @options = options.symbolize_keys
     end
 
     def name
       @name
     end
 
+    def auth_method
+      "authenticate_#{name_underscore}_from_token".to_sym
+    end
+
+    def auth_bang_method
+      "#{auth_method}!".to_sym
+    end
+
+    def auth_object_method
+      "current_#{name_underscore}".to_sym
+    end
+
+    def controller_auth_method
+      no_fallback? ? auth_method : auth_object_method
+    end
+
+    def controller_options
+      @options.slice(:only, :except, :if, :unless)
+    end
+
     def name_underscore
-      @name_underscore || name.underscore
+      @name_underscore ||= @options.fetch(:as, @name).to_s.underscore.to_sym
     end
 
-    # Private: Return the name of the header to watch for the token authentication param
+    def handle_fallback!(controller)
+      fallback_handler&.fallback!(controller, self)
+    end
+
+    private
+
+    # Return [String]
+    # the name of the header to watch for the token authentication param
     def token_header_name
-      if SimpleTokenAuthentication.header_names["#{name_underscore}".to_sym].presence \
-        && token_header_name = SimpleTokenAuthentication.header_names["#{name_underscore}".to_sym][:authentication_token]
-        token_header_name
-      else
-        "X-#{name_underscore.camelize}-Token"
-      end
+      SimpleTokenAuthentication.header_names.dig(name_underscore, :authentication_token) || "X-#{@model}-Token"
     end
 
-    # Private: Return the name of the header to watch for the email param
+    # Return [String]
+    # the name of the header to watch for the email param
     def identifier_header_name
-      if SimpleTokenAuthentication.header_names["#{name_underscore}".to_sym].presence \
-        && identifier_header_name = SimpleTokenAuthentication.header_names["#{name_underscore}".to_sym][identifier]
-        identifier_header_name
-      else
-        "X-#{name_underscore.camelize}-#{identifier.to_s.camelize}"
-      end
+      SimpleTokenAuthentication.header_names.dig(name_underscore, identifier) || "X-#{@model}-#{identifier.to_s.camelize}"
     end
 
+    # Return [String]
+    # token param name
     def token_param_name
       "#{name_underscore}_token".to_sym
     end
 
+    # Return [String]
+    # identifier param name
     def identifier_param_name
-      "#{name_underscore}_#{identifier}".to_sym
+      @identifier_param_name ||= "#{name_underscore}_#{identifier}".to_sym
     end
 
+    # Return [String]
+    # identifier key
     def identifier
-      if custom_identifier = SimpleTokenAuthentication.identifiers["#{name_underscore}".to_sym]
-        custom_identifier.to_sym
+      @identifier ||= SimpleTokenAuthentication.identifiers.fetch(name_underscore, :email)
+    end
+
+    # Return [@param | @header]
+    # token;
+    def get_token_from_params_or_headers(controller)
+      controller.params.fetch(token_param_name, controller.request.headers[token_header_name])
+    end
+
+    # Return [@param | @header]
+    # identifier
+    def get_identifier_from_params_or_headers(controller)
+      controller.params.fetch(identifier_param_name, controller.request.headers[identifier_header_name])
+    end
+
+    # Return [@exception_handler | @devise_handler | nil]
+    # fallback handler object
+    def fallback_handler
+      case @options[:fallback]
+      when :exception
+        exception_handler
+      when :devise
+        devise_handler
       else
-        :email
+        nil
       end
-    end
-
-    def get_token_from_params_or_headers controller
-      # if the token is not present among params, get it from headers
-      if token = controller.params[token_param_name].blank? && controller.request.headers[token_header_name]
-        controller.params[token_param_name] = token
-      end
-      controller.params[token_param_name]
-    end
-
-    def get_identifier_from_params_or_headers controller
-      # if the identifier is not present among params, get it from headers
-      if identifer_param = controller.params[identifier_param_name].blank? && controller.request.headers[identifier_header_name]
-        controller.params[identifier_param_name] = identifer_param
-      end
-      controller.params[identifier_param_name]
     end
   end
 end
