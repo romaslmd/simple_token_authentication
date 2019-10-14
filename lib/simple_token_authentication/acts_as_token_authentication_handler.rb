@@ -11,11 +11,13 @@ module SimpleTokenAuthentication
 
     def acts_as_token_authentication_handler_for(model, options = {})
       include SimpleTokenAuthentication::TokenAuthenticationHandler
+
       handle_token_authentication_for(model, options)
     end
 
     def acts_as_token_authentication_handler
       ::ActiveSupport::Deprecation.warn "`acts_as_token_authentication_handler()` is deprecated and may be removed from future releases, use `acts_as_token_authentication_handler_for(User)` instead.", caller
+
       acts_as_token_authentication_handler_for User
     end
   end
